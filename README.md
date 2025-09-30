@@ -152,3 +152,6 @@ This library references open research and tools on GPU‑accelerated plotting an
 - The `fastplotlib` documentation, which describes the library as a next‑generation plotting library built on pygfx and using Vulkan, DirectX 12 or Metal via WGPU【659221846865534†L56-L64】【273943724016156†L297-L334】.
 - The PyTorch blog on accelerated training on Mac, which introduces the Metal Performance Shaders backend enabling GPU acceleration on Apple Silicon devices【329595555539941†L66-L83】.
 - The Matplotlib 4.0 release notes highlighting built‑in GPU rendering and a default dark theme【90164871536591†L98-L100】.
+
+
+Copyright (c) 2025 DaScient, LLC | flightsim Contributors
