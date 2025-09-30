@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flight"
+version = "0.1.0"
+description = "Modular 6‑DOF simulation and GNC library with optional GPU acceleration and web UI"
+readme = "README.md"
+authors = [
+    { name = "Flight Contributors", email = "support@example.com" }
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+[project.urls]
+Homepage = "https://example.com/flight"
+Repository = "https://example.com/flight"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["flight*"]
+
+[tool.setuptools.package-data]
+"flight" = ["web/static/*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "ruff>=0.1",
+    "black>=23.9",
+]
+gpu = [
+    "torch>=2; extra == 'gpu'",
+]
+web = [
+    "streamlit>=1",
+    "fastplotlib[imgui]>=0.3",  # optional GPU plotting
+]

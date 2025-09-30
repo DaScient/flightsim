@@ -1,0 +1,14 @@
+conda create -n flight python=3.11
+conda activate flight
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pip install streamlit
+pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+pip install "fastplotlib[notebook,imgui]"
+PYTHONPATH=src python examples/run_6dof_demo.py
+PYTHONPATH=src python examples/run_detumble.py
+PYTHONPATH=src python examples/run_mekf_demo.py
+PYTHONPATH=src python examples/run_gpu_6dof_demo.py
+PYTHONPATH=src python examples/run_streamlit_app.py  # launches the Streamlit UI
+

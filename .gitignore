@@ -1,0 +1,27 @@
+# Python
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.dist/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual envs
+.venv/
+venv/
+env/
+*/.venv/
+*/venv/
+
+# macOS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# Node
+node_modules/
+
+# Site build artifacts (if you add doc tooling later)
+site/
