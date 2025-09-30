@@ -64,3 +64,5 @@ On macOS with Apple silicon, the GPU demo will detect and use the MPS backend au
 ## License
 
 This project is released under the MIT License; see the LICENSE file for details.
+
+Copyright (c) 2025 DaScient, LLC | flightsim Contributors
