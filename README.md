@@ -38,7 +38,7 @@ Unlike many academic codebases, `flight` treats simulation, control and estimati
 
 ### Interactive Web Application
 
-- A **Streamlit** application (`flight.web.app`) allows users to run simulations from a browser.  The app provides forms for selecting vehicle parameters, time‑step, environmental forces and controller settings.  Results are visualised using either Matplotlib or **fastplotlib**, a modern GPU‑accelerated plotting library built on the pygfx renderer【659221846865534†L56-L64】【273943724016156†L297-L334】.  The Streamlit app demonstrates real‑time simulation and plotting capabilities, making it ideal for education and prototyping.
+- A **Streamlit** application (`flight.web.app`) allows users to run simulations from a browser.  The app provides forms for selecting vehicle parameters, time‑step, environmental forces and controller settings.  Results are visualised using either Matplotlib or **fastplotlib**, a modern GPU‑accelerated plotting library built on the pygfx renderer【†L56-L64】【†L297-L334】.  The Streamlit app demonstrates real‑time simulation and plotting capabilities, making it ideal for education and prototyping.
 
 ### Examples and Tests
 
@@ -142,16 +142,16 @@ streamlit run src/flight/web/app.py
 
 * The code is written for Python 3.9+ and uses only the standard library plus optional third‑party dependencies (NumPy, Matplotlib, PyTorch, fastplotlib, and Streamlit).  NumPy is a required dependency; others are optional but highly recommended.
 * The GPU integrator is designed to work with PyTorch’s device abstraction, automatically selecting `cuda`, `mps` or `cpu` devices.  Users must ensure that PyTorch is installed with the appropriate backend.
-* The Streamlit application attempts to use fastplotlib for GPU rendering if available; otherwise it falls back to Matplotlib 4.0’s GPU‑accelerated mode【90164871536591†L98-L100】.
+* The Streamlit application attempts to use fastplotlib for GPU rendering if available; otherwise it falls back to Matplotlib 4.0’s GPU‑accelerated mode【†L98-L100】.
 * Unit tests are provided to ensure numerical stability and correctness.  Continuous integration can be configured to run on CPU and GPU environments.
 
 ## Citations
 
 This library references open research and tools on GPU‑accelerated plotting and training.  Notable sources include:
 
-- The `fastplotlib` documentation, which describes the library as a next‑generation plotting library built on pygfx and using Vulkan, DirectX 12 or Metal via WGPU【659221846865534†L56-L64】【273943724016156†L297-L334】.
-- The PyTorch blog on accelerated training on Mac, which introduces the Metal Performance Shaders backend enabling GPU acceleration on Apple Silicon devices【329595555539941†L66-L83】.
-- The Matplotlib 4.0 release notes highlighting built‑in GPU rendering and a default dark theme【90164871536591†L98-L100】.
+- The `fastplotlib` documentation, which describes the library as a next‑generation plotting library built on pygfx and using Vulkan, DirectX 12 or Metal via WGPU.
+- The PyTorch blog on accelerated training on Mac, which introduces the Metal Performance Shaders backend enabling GPU acceleration on Apple Silicon devices.
+- The Matplotlib 4.0 release notes highlighting built‑in GPU rendering and a default dark theme.
 
 
 Copyright (c) 2025 DaScient, LLC | flightsim Contributors
