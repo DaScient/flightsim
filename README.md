@@ -6,6 +6,7 @@
 
 Unlike many academic codebases, `flight` treats simulation, control and estimation as **first‑class modules**.  The library exposes a clear API for each subsystem and comes with a suite of examples that run out of the box.  Optional GPU acceleration (via PyTorch and Apple’s Metal Performance Shaders) and an interactive Streamlit application allow users to explore 6‑DOF dynamics and controller behaviour in real time.
 
+## (Use Chrome to Use This Simulator Test Flight Now!)[https://dascient.github.io/flightsim/flight3d/]
 ## Features
 
 ### Core Dynamics
