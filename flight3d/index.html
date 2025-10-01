@@ -257,7 +257,11 @@ addEventListener('keydown',e=>{
 /* ============================
    WebGL: tiny renderer
 ============================ */
-const gl = document.getElementById('gl').getContext('webgl',{antialias:true});
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', {antialias:true});
+if (!gl) {
+  alert("WebGL2 not supported. Please use a modern browser like Chrome/Firefox/Edge.");
+}
 if(!gl){ alert('WebGL not available'); }
 function compile(type,src){const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s); return s;}
 function program(vs,fs){const p=gl.createProgram(); gl.attachShader(p,compile(gl.VERTEX_SHADER,vs)); gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(p); if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw gl.getProgramInfoLog(p); return p;}
