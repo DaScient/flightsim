@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flight3D: Single-file WebGL2 Simulator</title>
+<style>
+  body,html { margin:0; padding:0; overflow:hidden; background:#0a0a14; }
+  #hud {
+    position:absolute; top:10px; right:10px; color:#fff;
+    font-family:monospace; font-size:13px; background:rgba(0,0,0,0.4); padding:6px; border-radius:4px;
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud">
+  Drag: pitch/roll | bottom drag=yaw | 2-finger/Alt+drag=throttle<br>
+  Keys: W/S throttle | A/D yaw | Q/E roll | R/F pitch<br>
+  Camera: C toggle | G reset | P pause
+</div>
+<script>
+const canvas=document.getElementById('gl');
+canvas.width=innerWidth; canvas.height=innerHeight;
+const gl=canvas.getContext('webgl2',{antialias:true});
+if(!gl){ alert("WebGL2 not supported in this browser"); }
+
+// --- Shaders ---
+const vs=`#version 300 es
+in vec3 pos;
+uniform mat4 mvp;
+void main(){ gl_Position=mvp*vec4(pos,1.0); }`;
+const fs=`#version 300 es
+precision highp float;
+out vec4 frag;
+void main(){ frag=vec4(0.2,0.7,1.0,1.0); }`;
+
+function compile(type,src){ let s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+ if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s;}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(prog); gl.useProgram(prog);
+
+// --- Geometry (cube as aircraft proxy) ---
+const cube=new Float32Array([
+ -1,-1,-1, 1,-1,-1, 1,1,-1, -1,1,-1,
+ -1,-1, 1, 1,-1, 1, 1,1, 1, -1,1, 1]);
+const idx=new Uint16Array([
+ 0,1,2, 0,2,3, 1,5,6, 1,6,2,
+ 5,4,7, 5,7,6, 4,0,3, 4,3,7,
+ 3,2,6, 3,6,7, 4,5,1, 4,1,0]);
+const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
+const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,cube,gl.STATIC_DRAW);
+const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,idx,gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,"pos"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,3,gl.FLOAT,false,0,0);
+
+// --- Matrices ---
+function mat4persp(out,fovy,asp,near,far){
+ let f=1/Math.tan(fovy/2), nf=1/(near-far);
+ out.set([f/asp,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
+ return out;
+}
+function mat4mul(a,b){ let o=new Float32Array(16);
+ for(let i=0;i<4;i++)for(let j=0;j<4;j++)o[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j];
+ return o;
+}
+function mat4translate(m,v){ let o=new Float32Array(m); o[12]+=v[0]; o[13]+=v[1]; o[14]+=v[2]; return o; }
+function mat4rotY(a){ let c=Math.cos(a),s=Math.sin(a);
+ return new Float32Array([c,0,s,0,0,1,0,0,-s,0,c,0,0,0,0,1]);}
+function mat4rotX(a){ let c=Math.cos(a),s=Math.sin(a);
+ return new Float32Array([1,0,0,0,0,c,-s,0,0,s,c,0,0,0,0,1]);}
+
+// --- Controls ---
+let pitch=0,roll=0,yaw=0,throttle=0.01, paused=false;
+let lastX,lastY,dragging=false;
+canvas.onmousedown=e=>{dragging=true; lastX=e.clientX; lastY=e.clientY;}
+canvas.onmouseup=()=>dragging=false;
+canvas.onmousemove=e=>{
+ if(!dragging)return;
+ let dx=e.clientX-lastX, dy=e.clientY-lastY;
+ if(e.altKey){ throttle+=dy*0.0001; }
+ else if(e.clientY>innerHeight*0.8){ yaw+=dx*0.002; }
+ else { roll+=dx*0.002; pitch+=dy*0.002; }
+ lastX=e.clientX; lastY=e.clientY;
+};
+document.onkeydown=e=>{
+ if(e.key=="w") throttle+=0.001;
+ if(e.key=="s") throttle-=0.001;
+ if(e.key=="a") yaw-=0.02;
+ if(e.key=="d") yaw+=0.02;
+ if(e.key=="q") roll-=0.02;
+ if(e.key=="e") roll+=0.02;
+ if(e.key=="r") pitch+=0.02;
+ if(e.key=="f") pitch-=0.02;
+ if(e.key=="p") paused=!paused;
+ if(e.key=="g"){ pitch=roll=yaw=0; throttle=0.01;}
+};
+
+// --- Simulation ---
+let pos=[0,0,-5];
+function animate(){
+ if(!paused){
+   pos[2]+=throttle;
+ }
+ gl.clearColor(0.05,0.05,0.1,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+ gl.enable(gl.DEPTH_TEST);
+ let proj=mat4persp(new Float32Array(16),Math.PI/4,canvas.width/canvas.height,0.1,100);
+ let view=mat4translate(new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),pos);
+ let rot=mat4mul(mat4rotY(yaw),mat4rotX(pitch));
+ let mvp=mat4mul(proj,mat4mul(view,rot));
+ gl.uniformMatrix4fv(gl.getUniformLocation(prog,"mvp"),false,mvp);
+ gl.bindVertexArray(vao);
+ gl.drawElements(gl.TRIANGLES,idx.length,gl.UNSIGNED_SHORT,0);
+ requestAnimationFrame(animate);
+}
+animate();
+</script>
+</body>
+</html>
