@@ -1,119 +1,480 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Flight3D: Single-file WebGL2 Simulator</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Flight3D — single-file 6-DOF flight sandbox</title>
 <style>
-  body,html { margin:0; padding:0; overflow:hidden; background:#0a0a14; }
-  #hud {
-    position:absolute; top:10px; right:10px; color:#fff;
-    font-family:monospace; font-size:13px; background:rgba(0,0,0,0.4); padding:6px; border-radius:4px;
-  }
+  
+html,body{margin:0;height:100%;background:#0b1020;overflow:hidden;font:13px/1.2 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+  #hud{position:fixed;left:12px;top:12px;color:#e8f0ff;background:rgba(8,12,24,.45);
+       padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.08);backdrop-filter: blur(6px)}
+  #hud b{color:#9dd4ff}
+  #help{position:fixed;right:12px;top:12px;color:#bcd2ff;background:rgba(8,12,24,.35);
+        padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.06)}
+  #footer{position:fixed;left:12px;bottom:10px;color:#a8b6d9;opacity:.7}
+  canvas{display:block;width:100vw;height:100vh}
 </style>
-</head>
 <body>
 <canvas id="gl"></canvas>
-<div id="hud">
-  Drag: pitch/roll | bottom drag=yaw | 2-finger/Alt+drag=throttle<br>
-  Keys: W/S throttle | A/D yaw | Q/E roll | R/F pitch<br>
-  Camera: C toggle | G reset | P pause
-</div>
+<div id="hud"></div>
+<div id="help">Drag = pitch/roll • bottom drag = yaw • 2-finger/Alt+drag = throttle<br/>
+Keys: W/S throttle · A/D yaw · Q/E roll · R/F pitch · C camera · P pause · G reset</div>
+<div id="footer">Flight3D: single-file WebGL • © you</div>
+
 <script>
-const canvas=document.getElementById('gl');
-canvas.width=innerWidth; canvas.height=innerHeight;
-const gl=canvas.getContext('webgl2',{antialias:true});
-if(!gl){ alert("WebGL2 not supported in this browser"); }
-
-// --- Shaders ---
-const vs=`#version 300 es
-in vec3 pos;
-uniform mat4 mvp;
-void main(){ gl_Position=mvp*vec4(pos,1.0); }`;
-const fs=`#version 300 es
-precision highp float;
-out vec4 frag;
-void main(){ frag=vec4(0.2,0.7,1.0,1.0); }`;
-
-function compile(type,src){ let s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
- if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s;}
-const prog=gl.createProgram();
-gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
-gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
-gl.linkProgram(prog); gl.useProgram(prog);
-
-// --- Geometry (cube as aircraft proxy) ---
-const cube=new Float32Array([
- -1,-1,-1, 1,-1,-1, 1,1,-1, -1,1,-1,
- -1,-1, 1, 1,-1, 1, 1,1, 1, -1,1, 1]);
-const idx=new Uint16Array([
- 0,1,2, 0,2,3, 1,5,6, 1,6,2,
- 5,4,7, 5,7,6, 4,0,3, 4,3,7,
- 3,2,6, 3,6,7, 4,5,1, 4,1,0]);
-const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
-const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,cube,gl.STATIC_DRAW);
-const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,idx,gl.STATIC_DRAW);
-const loc=gl.getAttribLocation(prog,"pos"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,3,gl.FLOAT,false,0,0);
-
-// --- Matrices ---
-function mat4persp(out,fovy,asp,near,far){
- let f=1/Math.tan(fovy/2), nf=1/(near-far);
- out.set([f/asp,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
- return out;
-}
-function mat4mul(a,b){ let o=new Float32Array(16);
- for(let i=0;i<4;i++)for(let j=0;j<4;j++)o[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j];
- return o;
-}
-function mat4translate(m,v){ let o=new Float32Array(m); o[12]+=v[0]; o[13]+=v[1]; o[14]+=v[2]; return o; }
-function mat4rotY(a){ let c=Math.cos(a),s=Math.sin(a);
- return new Float32Array([c,0,s,0,0,1,0,0,-s,0,c,0,0,0,0,1]);}
-function mat4rotX(a){ let c=Math.cos(a),s=Math.sin(a);
- return new Float32Array([1,0,0,0,0,c,-s,0,0,s,c,0,0,0,0,1]);}
-
-// --- Controls ---
-let pitch=0,roll=0,yaw=0,throttle=0.01, paused=false;
-let lastX,lastY,dragging=false;
-canvas.onmousedown=e=>{dragging=true; lastX=e.clientX; lastY=e.clientY;}
-canvas.onmouseup=()=>dragging=false;
-canvas.onmousemove=e=>{
- if(!dragging)return;
- let dx=e.clientX-lastX, dy=e.clientY-lastY;
- if(e.altKey){ throttle+=dy*0.0001; }
- else if(e.clientY>innerHeight*0.8){ yaw+=dx*0.002; }
- else { roll+=dx*0.002; pitch+=dy*0.002; }
- lastX=e.clientX; lastY=e.clientY;
+/* ============================
+   Minimal Math Helpers
+============================ */
+const V = {
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  norm:(a)=>Math.hypot(a[0],a[1],a[2]),
+  unit:(a)=>{const n=V.norm(a)||1; return [a[0]/n,a[1]/n,a[2]/n];},
 };
-document.onkeydown=e=>{
- if(e.key=="w") throttle+=0.001;
- if(e.key=="s") throttle-=0.001;
- if(e.key=="a") yaw-=0.02;
- if(e.key=="d") yaw+=0.02;
- if(e.key=="q") roll-=0.02;
- if(e.key=="e") roll+=0.02;
- if(e.key=="r") pitch+=0.02;
- if(e.key=="f") pitch-=0.02;
- if(e.key=="p") paused=!paused;
- if(e.key=="g"){ pitch=roll=yaw=0; throttle=0.01;}
+const Q = {
+  // q = [w,x,y,z]
+  mul:(q,r)=>[ q[0]*r[0]-q[1]*r[1]-q[2]*r[2]-q[3]*r[3],
+               q[0]*r[1]+q[1]*r[0]+q[2]*r[3]-q[3]*r[2],
+               q[0]*r[2]-q[1]*r[3]+q[2]*r[0]+q[3]*r[1],
+               q[0]*r[3]+q[1]*r[2]-q[2]*r[1]+q[3]*r[0] ],
+  conj:(q)=>[q[0],-q[1],-q[2],-q[3]],
+  norm:(q)=>{const n=Math.hypot(q[0],q[1],q[2],q[3])||1; return [q[0]/n,q[1]/n,q[2]/n,q[3]/n];},
+  // rotate vector v by quaternion q (body→inertial if q is body->inertial)
+  rot:(q,v)=>{
+    const p=[0,v[0],v[1],v[2]];
+    const r=Q.mul(Q.mul(q,p),Q.conj(q));
+    return [r[1],r[2],r[3]];
+  },
+  // quaternion derivative from body rates w (rad/s) in body frame
+  qdot:(q,w)=>{
+    const wb=[0,w[0],w[1],w[2]];
+    const dq=Q.mul(q,wb);
+    return [0.5*dq[0],0.5*dq[1],0.5*dq[2],0.5*dq[3]];
+  },
+  // build 3x3 rotation matrix (columns are body axes in inertial frame)
+  R3:(q)=>{
+    const [w,x,y,z]=q;
+    const wx=2*w*x, wy=2*w*y, wz=2*w*z, xx=2*x*x, yy=2*y*y, zz=2*z*z, xy=2*x*y, xz=2*x*z, yz=2*y*z;
+    // columns ex,ey,ez (body x,y,z in inertial coords)
+    return [
+      1-yy-zz, xy+wz,   xz-wy,
+      xy-wz,   1-xx-zz, yz+wx,
+      xz+wy,   yz-wx,   1-xx-yy
+    ];
+  }
 };
-
-// --- Simulation ---
-let pos=[0,0,-5];
-function animate(){
- if(!paused){
-   pos[2]+=throttle;
- }
- gl.clearColor(0.05,0.05,0.1,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
- gl.enable(gl.DEPTH_TEST);
- let proj=mat4persp(new Float32Array(16),Math.PI/4,canvas.width/canvas.height,0.1,100);
- let view=mat4translate(new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),pos);
- let rot=mat4mul(mat4rotY(yaw),mat4rotX(pitch));
- let mvp=mat4mul(proj,mat4mul(view,rot));
- gl.uniformMatrix4fv(gl.getUniformLocation(prog,"mvp"),false,mvp);
- gl.bindVertexArray(vao);
- gl.drawElements(gl.TRIANGLES,idx.length,gl.UNSIGNED_SHORT,0);
- requestAnimationFrame(animate);
+function m3Tmulv(M,v){ // (R^T)*v
+  return [
+    M[0]*v[0]+M[3]*v[1]+M[6]*v[2],
+    M[1]*v[0]+M[4]*v[1]+M[7]*v[2],
+    M[2]*v[0]+M[5]*v[1]+M[8]*v[2],
+  ];
 }
-animate();
+
+/* ============================
+   Physics Model (lightweight)
+============================ */
+// Simple Earth-ish constants
+const g0 = 9.80665;       // m/s^2
+const rho0 = 1.225;       // kg/m^3 at sea level
+const Hs = 8500.0;        // m scale height
+function airDensity(alt){ return rho0*Math.exp(-Math.max(0,alt)/Hs); }
+function soundSpeed(alt){
+  const gammaR = 1.4 * 287.05;
+  if(alt < 11000){
+    const T = 288.15 - 0.0065 * Math.max(0, alt);
+    return Math.sqrt(gammaR * T);
+  } else {
+    return Math.sqrt(gammaR * 216.65);
+  }
+}
+
+// Aircraft parameters (toy but plausible)
+const craft = {
+  mass: 900,              // kg
+  I: [1200, 1500, 2000],  // kg m^2 (principal inertia)
+  S: 16.0,                // wing area (m^2)
+  b: 9.0,                 // span (m)
+  c: 1.8,                 // mean chord (m)
+  CL0: 0.1,               // baseline lift
+  CLa: 5.0,               // per rad
+  CD0: 0.025,             // parasitic drag
+  k: 0.04,                // induced drag factor
+  Cm0: 0.02,              // baseline pitch moment
+  Cma: -0.8,              // pitch stiffness (stable)
+  Cmq: -10.0,             // pitch damping (q*c/(2V)) approx
+  Clp: -0.6,              // roll damping
+  Cnr: -0.3,              // yaw damping
+  maxThrust: 7000,        // N
+  thrustLag: 1.5,         // s
+};
+// State
+let r=[0,1000,0];         // position (m) in world (x forward, y up, z right) – start 1km up
+let v=[80,0,0];           // m/s initial airspeed forward
+let q=Q.norm([1,0,0,0]);  // body->world (identity)
+let w=[0,0,0];            // body rates (p,q,r)
+let throttle=0.4, spool=0.4;
+let paused=false;
+function reset(){
+  r=[0,1000,0]; v=[80,0,0]; q=Q.norm([1,0,0,0]); w=[0,0,0]; throttle=0.4; spool=0.4;
+}
+
+function step(dt, inputs){
+  // inputs: {pitch, roll, yaw, dthrottle} in [-1,1]
+  throttle = Math.min(1, Math.max(0, throttle + inputs.dthrottle*dt*0.5));
+  // engine spool
+  spool += (throttle - spool)*(1 - Math.exp(-dt/craft.thrustLag));
+
+  // Gravity
+  const Fg=[0,-craft.mass*g0,0];
+
+  // Airflow in body frame
+  const R = Q.R3(q);                 // columns are body axes in world
+  const Vb = m3Tmulv(R, v);          // transform world v into body
+  const Vmag = Math.max(1e-1, V.norm(Vb));
+  const alpha = Math.atan2(-Vb[2], Vb[0]); // AoA around body-y (using -z as "down")
+  const beta  = Math.asin(Vb[1]/Vmag);     // sideslip (approx small angle)
+
+  const rho = airDensity(r[1]);
+  const qdyn = 0.5*rho*Vmag*Vmag;
+
+  // Aerodynamic coeffs (very simplified)
+  let CL = craft.CL0 + craft.CLa*alpha + 0.2*inputs.pitch;  // pitch input adds lift
+  let CD = craft.CD0 + craft.k*CL*CL + 0.02*Math.abs(beta); // drag ~ induced + sideslip penalty
+  const CY = 0.2*beta + 0.15*inputs.yaw;                    // side force ~ beta + rudder
+
+  // Stall modeling: reduce lift and increase drag beyond critical AoA
+  const absAlpha = Math.abs(alpha);
+  let stallFactor = 1;
+  if(absAlpha > 0.26){
+    stallFactor = Math.max(0, 1 - (absAlpha - 0.26)/(1.57 - 0.26));
+  }
+  if(stallFactor < 1){
+    CL *= stallFactor;
+    CD *= 1 + 2*(1 - stallFactor);
+  }
+
+  // Forces in body axes: X forward, Y right, Z down (aircraft convention)
+  const L = CL*qdyn*craft.S;
+  const D = CD*qdyn*craft.S;
+  const Yf= CY*qdyn*craft.S;
+
+  // Lift opposes body-z (down). Build body force vector:
+  // Direction unit vectors relative to body-velocity:
+  const xb = V.unit([1,0,0]);
+  const yb = [0,1,0];
+  const zb = [0,0,1]; // down
+  // Project aero along axes: drag along -V_b direction
+  const vhat = V.unit(Vb);
+  const Fb_drag = V.mul(vhat, -D);
+  const Fb_lift = V.mul(zb, -L);    // up (negative body-z)
+  const Fb_side = V.mul(yb,  Yf);
+
+  // Thrust along +body-x
+  const Ft = [ craft.maxThrust * spool, 0, 0 ];
+
+  // Total body force
+  let Fb = V.add(V.add(Fb_drag, Fb_lift), V.add(Fb_side, Ft));
+
+  // Moments (toy stability & control)
+  const p=w[0], qrate=w[1], rrate=w[2];
+  const Cl = 0.08*inputs.roll + craft.Clp*(p*craft.b/(2*Vmag));
+  const Cm = craft.Cm0 + craft.Cma*alpha + craft.Cmq*(qrate*craft.c/(2*Vmag)) + 0.08*inputs.pitch;
+  const Cn = 0.06*inputs.yaw + craft.Cnr*(rrate*craft.b/(2*Vmag));
+  const Mb = [ Cl*qdyn*craft.S*craft.b,
+               Cm*qdyn*craft.S*craft.c,
+               Cn*qdyn*craft.S*craft.b ];
+
+  // Transform to world
+  const Fi = Q.rot(q, Fb);
+  // Sum with gravity
+  const F = V.add(Fi, Fg);
+  const a = V.mul(F, 1/craft.mass);
+
+  // Angular rates update (principal inertia)
+  const I = craft.I, invI=[1/I[0],1/I[1],1/I[2]];
+  // Euler's equations in body frame: I*dw/dt + w×(I w) = M
+  const Iw=[I[0]*w[0],I[1]*w[1],I[2]*w[2]];
+  const wxIw=V.cross(w,Iw);
+  const tau = V.sub(Mb, wxIw);
+  const wdot=[tau[0]*invI[0], tau[1]*invI[1], tau[2]*invI[2]];
+
+  // Integrate (semi-implicit / RK2-ish)
+  v = V.add(v, V.mul(a, dt));
+  r = V.add(r, V.mul(v, dt));
+  w = V.add(w, V.mul(wdot, dt));
+  const dq = Q.qdot(q,w);
+  q = Q.norm([q[0]+dq[0]*dt, q[1]+dq[1]*dt, q[2]+dq[2]*dt, q[3]+dq[3]*dt]);
+
+  // Ground collision: simple bounce/slide
+  if(r[1]<0){
+    r[1]=0;
+    if(v[1]<0) v[1]*=-0.2;
+    // friction
+    v[0]*=0.995; v[2]*=0.995;
+  }
+
+  return {alpha:(alpha*180/Math.PI), V:Vmag, alt:r[1], throttle, mach: Vmag/soundSpeed(r[1]), vs: v[1]};
+}
+
+/* ============================
+   Controls (mouse/touch/keys)
+============================ */
+const inputs={pitch:0,roll:0,yaw:0,dthrottle:0};
+let dragging=false, dragId=null, last=[0,0], area='center', altMode=false;
+
+function clamp(x){return Math.max(-1,Math.min(1,x));}
+
+function startDrag(x,y,id,isAlt,touches=1){
+  dragging=true; dragId=id; last=[x,y]; altMode=isAlt||touches>1;
+  area = (y>innerHeight*0.78)?'bottom':'center';
+}
+function moveDrag(x,y){
+  if(!dragging) return;
+  const dx=(x-last[0])/Math.max(120, innerWidth*0.25);
+  const dy=(y-last[1])/Math.max(120, innerHeight*0.25);
+  last=[x,y];
+  if(altMode){ inputs.dthrottle = clamp(inputs.dthrottle - dy); return; }
+  if(area==='bottom'){ inputs.yaw = clamp(inputs.yaw + dx*2); } // yaw bias from bottom drags
+  inputs.roll  = clamp(inputs.roll  + dx*2);
+  inputs.pitch = clamp(inputs.pitch - dy*2);
+}
+function endDrag(){ dragging=false; dragId=null; inputs.pitch*=0.5; inputs.roll*=0.5; inputs.yaw*=0.5; inputs.dthrottle=0; }
+
+addEventListener('mousedown',e=>startDrag(e.clientX,e.clientY,'m',e.altKey,false));
+addEventListener('mousemove',e=>moveDrag(e.clientX,e.clientY));
+addEventListener('mouseup', endDrag);
+addEventListener('mouseleave', endDrag);
+
+addEventListener('touchstart',e=>{
+  const t=e.changedTouches[0]; startDrag(t.clientX,t.clientY,t.identifier,false,e.touches.length);
+},{passive:true});
+addEventListener('touchmove',e=>{
+  for(const t of e.changedTouches){
+    if(dragId===t.identifier) moveDrag(t.clientX,t.clientY);
+  }
+},{passive:true});
+addEventListener('touchend',e=>{
+  for(const t of e.changedTouches) if(dragId===t.identifier) endDrag();
+});
+addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='w') throttle=Math.min(1,throttle+0.05);
+  if(k==='s') throttle=Math.max(0,throttle-0.05);
+  if(k==='a') inputs.yaw=clamp(inputs.yaw-0.1);
+  if(k==='d') inputs.yaw=clamp(inputs.yaw+0.1);
+  if(k==='q') inputs.roll=clamp(inputs.roll-0.1);
+  if(k==='e') inputs.roll=clamp(inputs.roll+0.1);
+  if(k==='r') inputs.pitch=clamp(inputs.pitch+0.1);
+  if(k==='f') inputs.pitch=clamp(inputs.pitch-0.1);
+  if(k==='p') paused=!paused;
+  if(k==='g') reset();
+  if(k==='c') cam.mode=(cam.mode+1)%2; // 0 chase, 1 free
+});
+
+/* ============================
+   WebGL: tiny renderer
+============================ */
+const gl = document.getElementById('gl').getContext('webgl2',{antialias:true});
+if(!gl){ alert('WebGL2 not available'); }
+function compile(type,src){const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s); return s;}
+function program(vs,fs){const p=gl.createProgram(); gl.attachShader(p,compile(gl.VERTEX_SHADER,vs)); gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(p); if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw gl.getProgramInfoLog(p); return p;}
+
+// Shaders: solid color with Phong lighting & ground grid
+const VS = `
+attribute vec3 aPos; attribute vec3 aNrm;
+uniform mat4 uP, uV, uM; varying vec3 vN; varying vec3 vW;
+void main(){
+  vec4 wpos = uM * vec4(aPos,1.0);
+  vW = wpos.xyz;
+  vN = mat3(uM) * aNrm;
+  gl_Position = uP * uV * wpos;
+}`;
+const FS = `
+precision mediump float;
+varying vec3 vN; varying vec3 vW;
+uniform vec3 uColor, uLightDir, uCamPos;
+uniform float uAmbient;
+void main(){
+  vec3 N = normalize(vN);
+  vec3 L = normalize(uLightDir);
+  vec3 V = normalize(uCamPos - vW);
+  // ambient, diffuse and specular components (Phong lighting)
+  float ndl = max(dot(N, L), 0.0);
+  vec3 ambient = uColor * uAmbient;
+  vec3 diffuse = uColor * ndl;
+  vec3 R = reflect(-L, N);
+  float spec = pow(max(dot(V, R), 0.0), 32.0);
+  vec3 specular = spec * vec3(1.0);
+  gl_FragColor = vec4(ambient + diffuse + specular, 1.0);
+}`;
+const VS_GRID = `
+attribute vec3 aPos;
+uniform mat4 uP,uV; varying vec3 vPos;
+void main(){ vPos=aPos; gl_Position=uP*uV*vec4(aPos,1.0); }`;
+const FS_GRID = `
+precision mediump float; varying vec3 vPos;
+void main(){
+  // infinite-ish grid via fading
+  float g = step(0.5, abs(fract(vPos.x*0.1)-0.5)) + step(0.5, abs(fract(vPos.z*0.1)-0.5));
+  float fade = clamp(1.0 - length(vPos.xz)/800.0, 0.0, 1.0);
+  vec3 col = mix(vec3(0.05,0.08,0.12), vec3(0.12,0.25,0.45), g*0.15) * fade;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+const prog = program(VS,FS),
+      uP=gl.getUniformLocation(prog,'uP'),
+      uV=gl.getUniformLocation(prog,'uV'),
+      uM=gl.getUniformLocation(prog,'uM'),
+      uC=gl.getUniformLocation(prog,'uColor'),
+      uL=gl.getUniformLocation(prog,'uLightDir');
+const uCam = gl.getUniformLocation(prog,'uCamPos'), uAmb = gl.getUniformLocation(prog,'uAmbient');
+
+const gridProg = program(VS_GRID, FS_GRID),
+      g_uP=gl.getUniformLocation(gridProg,'uP'),
+      g_uV=gl.getUniformLocation(gridProg,'uV');
+
+// Geometry: minimalist aircraft (arrow-like)
+function makeAircraft(){
+  const s=1.2;
+  const verts=[
+    // fuselage (a slender tetra-ish)
+    [ 3*s,0,0],[ -1*s, 0.3*s, 0.0],[ -1*s,-0.3*s,0.0],
+    [ 3*s,0,0],[ -0.5*s,0, 0.25*s],[ -0.5*s, 0,-0.25*s],
+    // wings
+    [ 0,0,0],[ -0.2*s,0.04*s, 4*s],[ -0.2*s,-0.04*s, 4*s],
+    [ 0,0,0],[ -0.2*s,0.04*s,-4*s],[ -0.2*s,-0.04*s,-4*s],
+    // tail
+    [ -0.8*s,0,0],[ -1.2*s, 0.8*s,0],[ -1.2*s, 0,0.2*s],
+    [ -0.8*s,0,0],[ -1.2*s,-0.8*s,0],[ -1.2*s, 0,-0.2*s],
+  ];
+  const nrm=[];
+  for(let i=0;i<verts.length;i+=3){
+    const a=verts[i],b=verts[i+1],c=verts[i+2];
+    const ab=V.sub(b,a), ac=V.sub(c,a);
+    const n=V.unit(V.cross(ab,ac));
+    nrm.push(n,n,n);
+  }
+  return {pos:new Float32Array(verts.flat()), nrm:new Float32Array(nrm.flat()), count:verts.length};
+}
+const model=makeAircraft();
+
+// Grid mesh (big XZ plane)
+function makeGrid(size=2000, step=50){
+  const v=[];
+  for(let x=-size;x<=size;x+=step){
+    v.push([x,0,-size],[x,0,size]);
+  }
+  for(let z=-size;z<=size;z+=step){
+    v.push([-size,0,z],[size,0,z]);
+  }
+  return new Float32Array(v.flat());
+}
+const grid=makeGrid();
+
+// Buffers
+function makeBuffer(data,attribLoc,comp=3,progHandle=prog,name='aPos'){
+  const loc = gl.getAttribLocation(progHandle,name);
+  const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,comp,gl.FLOAT,false,0,0);
+  return buf;
+}
+const vaoModel = gl.createVertexArray(); gl.bindVertexArray(vaoModel);
+const posB=makeBuffer(model.pos, gl.getAttribLocation(prog,'aPos'),3,prog,'aPos');
+const nrmB=makeBuffer(model.nrm, gl.getAttribLocation(prog,'aNrm'),3,prog,'aNrm');
+gl.bindVertexArray(null);
+
+const vaoGrid = gl.createVertexArray(); gl.bindVertexArray(vaoGrid);
+const gPos=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,gPos); gl.bufferData(gl.ARRAY_BUFFER,grid,gl.STATIC_DRAW);
+const gLoc=gl.getAttribLocation(gridProg,'aPos');
+gl.enableVertexAttribArray(gLoc);
+gl.vertexAttribPointer(gLoc,3,gl.FLOAT,false,0,0);
+gl.bindVertexArray(null);
+
+// Camera (chase vs free)
+const cam = {mode:0, yaw:0, pitch:-0.15, dist:25, target:[0,0,0], pos:[-30,12,15]};
+addEventListener('wheel',e=>{ cam.dist=Math.max(5, Math.min(150, cam.dist + e.deltaY*0.02)); });
+
+/* ============================
+   Main Loop
+============================ */
+let lastT=performance.now();
+function frame(){
+  const now=performance.now(), dt=Math.min(0.033,(now-lastT)/1000); lastT=now;
+
+  // Soft center the stick when not dragging / no key input
+  if(!dragging){ inputs.pitch*=0.95; inputs.roll*=0.95; inputs.yaw*=0.92; inputs.dthrottle*=0.8; }
+
+  let telem={alpha:0,V:0,alt:r[1],throttle};
+  if(!paused) telem=step(dt,inputs);
+
+  // Camera
+  const R=Q.R3(q);
+  const forward=[R[0],R[1],R[2]], up=[R[6],R[7],R[8]]; // body x, and body z column as "up" approx
+  if(cam.mode===0){ // chase
+    const back = V.mul(forward,-1);
+    const off = V.add(V.mul(back, cam.dist), V.mul([0,1,0], cam.dist*0.3));
+    cam.target = r;
+    cam.pos = V.add(r, off);
+  } else { // free orbit-ish
+    // yaw/pitch camera slowly with aircraft roll/pitch
+    cam.yaw   += 0.15*inputs.roll*dt;
+    cam.pitch += 0.15*inputs.pitch*dt;
+    cam.pitch = Math.max(-1.2, Math.min(0.4, cam.pitch));
+    const cx = Math.cos(cam.yaw), sx=Math.sin(cam.yaw), cy=Math.cos(cam.pitch), sy=Math.sin(cam.pitch);
+    const dir=[cx*cy, sy, sx*cy];
+    cam.target=r;
+    cam.pos = V.add(cam.target, V.mul(dir,-cam.dist));
+  }
+
+  // Render
+  const w=gl.canvas.width=innerWidth, h=gl.canvas.height=innerHeight;
+  gl.viewport(0,0,w,h);
+  gl.enable(gl.DEPTH_TEST);
+  // Sky gradient
+  const skyMix = Math.min(telem.alt/10000, 1);
+  const sr = 0.6*(1.0 - skyMix) + 0.03*skyMix;
+  const sg = 0.8*(1.0 - skyMix) + 0.05*skyMix;
+  const sb = 1.0*(1.0 - skyMix) + 0.1*skyMix;
+  gl.clearColor(sr, sg, sb, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+  const P = perspective(60*Math.PI/180, w/h, 0.1, 5000);
+  const Vw = lookAt(cam.pos, cam.target, [0,1,0]);
+
+  // Grid
+  gl.useProgram(gridProg);
+  gl.bindVertexArray(vaoGrid);
+  gl.uniformMatrix4fv(g_uP,false,P);
+  gl.uniformMatrix4fv(g_uV,false,Vw);
+  gl.drawArrays(gl.LINES,0,grid.length/3);
+
+  // Aircraft
+  gl.useProgram(prog);
+  gl.bindVertexArray(vaoModel);
+  const M = fromR3_t(R, r);
+  gl.uniformMatrix4fv(uP,false,P);
+  gl.uniformMatrix4fv(uV,false,Vw);
+  gl.uniformMatrix4fv(uM,false,M);
+  gl.uniform3fv(uC,new Float32Array([0.85,0.9,1.0]));
+  gl.uniform3fv(uL,new Float32Array([0.4,0.8,0.6]));
+  gl.uniform3fv(uCam, new Float32Array(cam.pos));
+  gl.uniform1f(uAmb, 0.2);
+  gl.drawArrays(gl.TRIANGLES,0,model.count);
+
+  // HUD
+  const hud=document.getElementById('hud');
+  hud.innerHTML =
+    `ALT <b>${(telem.alt).toFixed(0)} m</b> | VSPD <b>${(telem.vs).toFixed(1)} m/s</b><br/>` +
+    `SPD <b>${(telem.V).toFixed(1)} m/s</b> | MACH <b>${(telem.mach).toFixed(2)}</b> | AOA <b>${(telem.alpha).toFixed(1)}°</b> | THR <b>${(telem.throttle*100|0)}%</b>` +
+    (Math.abs(telem.alpha) > 15 ? ' | <b style="color:#f55">STALL</b>' : '');
+
+  requestAnimationFrame(frame);
+}
+reset(); frame();
 </script>
 </body>
 </html>
